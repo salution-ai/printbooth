@@ -1,0 +1,10 @@
+.logo {
+  width: 80px;
+  height: 80px;
+  background: url('https://photolab.tulieconcept.vn/wp-content/uploads/2025/05/TuliePhotoLab-favicon.png')
+    no-repeat center/contain;
+  margin: 100px auto;
+  will-change: transform;
+  filter: drop-shadow(0 0 6px rgba(255, 94, 87, 0.4));
+  transition: filter 0.3s ease;
+}
