@@ -61,8 +61,9 @@ export default function Navbar() {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              <Image src="/logo.PNG" alt="Tulie PhotoLab Logo" width={136} height={28} className="object-contain" />
+            <Link href="/" className="flex items-center gap-2">
+              <Image src="/logo.png" alt="PrintBooth Logo" width={36} height={28} className="object-contain" />
+              <span className="text-2xl font-bold">PrintBooth</span>
             </Link>
           </div>
 
