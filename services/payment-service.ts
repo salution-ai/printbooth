@@ -2,10 +2,10 @@
 const CASSO_CONFIG = {
   apiKey: process.env.NEXT_PUBLIC_CASSO_API_KEY || "", // Sử dụng biến môi trường client-side
   apiUrl: "https://oauth.casso.vn/v2", // Cập nhật URL API chính xác theo tài liệu
-  bankId: "OCB", // Mã ngân hàng OCB
-  accountNumber: "CASS8886666118", // Số tài khoản ngân hàng của bạn
-  accountName: "Nghiem Thi Lien", // Tên chủ tài khoản
-  bankName: "OCB - Ngân hàng thương mại cổ phần Phương Đông", // Tên ngân hàng đầy đủ
+  bankId: "TPB",
+  accountNumber: "11114062001", // Số tài khoản ngân hàng của bạn
+  accountName: "Lê Đức Huy",
+  bankName: "TPBank - Ngân hàng thương mại cổ phần Tiên Phong",
   webhookUrl: typeof window !== "undefined" ? `${window.location.origin}/api/payment/webhook` : "",
   secureToken: process.env.NEXT_PUBLIC_CASSO_SECURE_TOKEN || "", // Sử dụng biến môi trường client-side
 }
@@ -35,7 +35,7 @@ export function generateVietQRCode(orderInfo: {
   params.append("amount", orderInfo.amount.toString())
   params.append("addInfo", `${orderInfo.orderCode}`)
   params.append("accountName", CASSO_CONFIG.accountName)
-
+  
   return `${baseUrl}?${params.toString()}`
 }
 

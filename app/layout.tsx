@@ -23,7 +23,7 @@ export default function RootLayout({
     <html lang="vi" suppressHydrationWarning>
       <head>
         {/* ✅ Facebook Pixel Script */}
-        <Script
+        {/* <Script
           id="facebook-pixel"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
@@ -40,7 +40,7 @@ export default function RootLayout({
               fbq('track', 'PageView');
             `,
           }}
-        />
+        /> */}
       </head>
       <body className={inter.className}>
         {/* ✅ Pixel fallback cho người tắt JS */}
@@ -56,7 +56,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>
-        <MessengerButton />
+        {/* <MessengerButton /> */}
         <Toaster />
       </body>
     </html>
