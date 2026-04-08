@@ -17,13 +17,6 @@ const nextConfig = {
       },
     ],
   },
-  // Tăng giới hạn kích thước body cho API routes
-  api: {
-    bodyParser: {
-      sizeLimit: "10mb",
-    },
-    responseLimit: "10mb",
-  },
 }
 
 module.exports = nextConfig

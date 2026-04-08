@@ -9,6 +9,7 @@ import CancelButton from "../../components/buttons/cancel-button";
 
 const pacifico = Pacifico({
   weight: ["400"],
+  subsets: ["vietnamese", "latin"],
 });
 
 export default function PaymentMethodsPage() {
