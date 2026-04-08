@@ -124,6 +124,7 @@ export default function StartPage() {
   const [selectedCaptureFilter, setSelectedCaptureFilter] = useState<
     (typeof CAPTURE_FILTER_OPTIONS)[number]
   >(CAPTURE_FILTER_OPTIONS[0]);
+  const [hasLoadedImagesOnce, setHasLoadedImagesOnce] = useState(false);
   
   const [selectedFrameType, setSelectedFrameType] = useState<
     (typeof FRAME_TYPE_OPTIONS)[number]
@@ -149,24 +150,37 @@ export default function StartPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchData() {
-      setIsLoading(true);
+      const shouldShowLoading = !hasLoadedImagesOnce;
+      if (shouldShowLoading) setIsLoading(true);
       try {
         const res = await fetch(
           `https://n8n.salution.net/webhook/image-sections?section=${randomUUID}`,
         );
         const data = await res.json();
-        setUploadedImages(data);
+        if (!cancelled) {
+          setUploadedImages(Array.isArray(data) ? data : []);
+          setHasLoadedImagesOnce(true);
+        }
       } catch (err) {
         console.error("Error fetching images:", err);
       } finally {
-        setIsLoading(false);
+        if (!cancelled && !hasLoadedImagesOnce) setIsLoading(false);
       }
     }
-    if (randomUUID) {
-      fetchData();
-    }
-  }, [randomUUID]);
+    if (!randomUUID || flowStep !== "capture") return;
+
+    void fetchData();
+    const id = window.setInterval(() => {
+      void fetchData();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [randomUUID, flowStep, hasLoadedImagesOnce]);
 
   useEffect(() => {
     if (flowStep !== "capture") {
