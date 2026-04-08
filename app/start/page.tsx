@@ -1,12 +1,13 @@
 "use client";
 import { motion } from "framer-motion";
-import { ArrowRight, Camera, FlipHorizontal } from "lucide-react";
+import { Camera, FlipHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Playwrite_IE } from "next/font/google";
 import Image from "next/image";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import PhysicalButton from "@/components/buttons/physical-button";
-import { uploadImage } from "@/services/cloudinary-service";
+import { deleteImage, uploadImage } from "@/services/cloudinary-service";
+import { StartFrameEditor } from "./start-frame-editor";
 
 const playwrightIE = Playwrite_IE({
   weight: ["400"],
@@ -16,6 +17,35 @@ const FRAME_TYPE_OPTIONS: { id: string; name: string; slots: number }[] = [
   { id: "1", name: "1x3", slots: 3 },
   { id: "2", name: "1x4", slots: 4 },
   { id: "3", name: "2x2", slots: 4 },
+];
+
+const CAPTURE_FILTER_OPTIONS: {
+  id: string;
+  name: string;
+  canvasFilter: string;
+}[] = [
+  { id: "normal", name: "Bình thường", canvasFilter: "none" },
+  {
+    id: "mono-retro",
+    name: "Mono (Retro Effect)",
+    canvasFilter: "grayscale(1) contrast(1.15) brightness(1.05)",
+  },
+  { id: "bw", name: "Đen trắng", canvasFilter: "grayscale(1) contrast(1.25)" },
+  {
+    id: "soft",
+    name: "Mềm mại",
+    canvasFilter: "contrast(0.95) brightness(1.08) saturate(0.9)",
+  },
+  {
+    id: "dazz-classic",
+    name: "Dazz Classic",
+    canvasFilter: "contrast(1.1) brightness(1.05) saturate(1.2) sepia(0.18)",
+  },
+  {
+    id: "dazz-instant",
+    name: "Dazz Instant",
+    canvasFilter: "contrast(1.25) brightness(1.1) saturate(1.35) sepia(0.08)",
+  },
 ];
 
 let shutterAudioContext: AudioContext | null = null;
@@ -78,8 +108,11 @@ function playShutterSound() {
   }
 }
 
+type FlowStep = "capture" | "frame";
+
 export default function StartPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [flowStep, setFlowStep] = useState<FlowStep>("capture");
   const [isFlipped, setIsFlipped] = useState(false);
   const [randomUUID, setRandomUUID] = useState<string>("");
   const [uploadedImages, setUploadedImages] = useState<
@@ -87,6 +120,10 @@ export default function StartPage() {
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [deletingRowIndex, setDeletingRowIndex] = useState<number | null>(null);
+  const [selectedCaptureFilter, setSelectedCaptureFilter] = useState<
+    (typeof CAPTURE_FILTER_OPTIONS)[number]
+  >(CAPTURE_FILTER_OPTIONS[0]);
   
   const [selectedFrameType, setSelectedFrameType] = useState<
     (typeof FRAME_TYPE_OPTIONS)[number]
@@ -107,8 +144,8 @@ export default function StartPage() {
   }, [uploadedImages, slotCount]);
 
   useEffect(() => {
-    // setRandomUUID(crypto.randomUUID());
-    setRandomUUID("de2f49a4-0d27-43e6-bfad-edfac6786c0a");
+    setRandomUUID(crypto.randomUUID());
+    // setRandomUUID("de2f49a4-0d27-43e6-bfad-edfac6786c0a");
   }, []);
 
   useEffect(() => {
@@ -132,6 +169,14 @@ export default function StartPage() {
   }, [randomUUID]);
 
   useEffect(() => {
+    if (flowStep !== "capture") {
+      const v = videoRef.current;
+      const stream = v?.srcObject as MediaStream | null;
+      stream?.getTracks().forEach((t) => t.stop());
+      if (v) v.srcObject = null;
+      return;
+    }
+
     async function initCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -147,8 +192,8 @@ export default function StartPage() {
       }
     }
 
-    initCamera();
-  }, []);
+    void initCamera();
+  }, [flowStep]);
 
   async function handleCapture() {
     if (!randomUUID || isCapturing) return;
@@ -173,7 +218,9 @@ export default function StartPage() {
         ctx.translate(w, 0);
         ctx.scale(-1, 1);
       }
+      ctx.filter = selectedCaptureFilter.canvasFilter;
       ctx.drawImage(video, 0, 0, w, h);
+      ctx.filter = "none";
 
       const blob = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, "image/jpeg", 0.92),
@@ -213,6 +260,83 @@ export default function StartPage() {
     }
   }
 
+  function getCloudinaryPublicIdFromUrl(url: string): string | null {
+    // Example: https://res.cloudinary.com/<cloud>/image/upload/v123/photolab/<session>/<publicId>.jpg
+    const marker = "/upload/";
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    let rest = url.slice(idx + marker.length);
+    rest = rest.replace(/^v\d+\//, ""); // remove version prefix
+    rest = rest.split("?")[0] ?? rest;
+    const lastDot = rest.lastIndexOf(".");
+    if (lastDot > 0) rest = rest.slice(0, lastDot);
+    return rest || null;
+  }
+
+  async function refreshUploadedImages(section: string) {
+    try {
+      const listRes = await fetch(
+        `https://n8n.salution.net/webhook/image-sections?section=${section}`,
+      );
+      const data = await listRes.json();
+      setUploadedImages(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error fetching images:", err);
+    }
+  }
+
+  async function handleDeleteImage(row: { row_number: number; Image: string }) {
+    if (!randomUUID) return;
+    if (deletingRowIndex != null) return;
+
+    const ok = window.confirm("Bạn có chắc chắn muốn xóa ảnh này không?");
+    if (!ok) return;
+
+    setDeletingRowIndex(row.row_number);
+    try {
+      const webhookRes = await fetch(
+        `https://n8n.salution.net/webhook/image-sections?section=${encodeURIComponent(
+          randomUUID,
+        )}&row_index=${encodeURIComponent(String(row.row_number))}`,
+        { method: "DELETE" },
+      );
+      if (!webhookRes.ok) {
+        throw new Error(`Webhook delete: ${webhookRes.status}`);
+      }
+
+      const publicId = getCloudinaryPublicIdFromUrl(row.Image);
+      if (publicId) {
+        await deleteImage(publicId, randomUUID);
+      } else {
+        console.warn("Cannot infer Cloudinary publicId from URL:", row.Image);
+      }
+
+      await refreshUploadedImages(randomUUID);
+    } catch (err) {
+      console.error("Delete image failed:", err);
+    } finally {
+      setDeletingRowIndex(null);
+    }
+  }
+
+  const boothRowsForFrame = useMemo(() => {
+    const sorted = [...uploadedImages].sort(
+      (a, b) => a.row_number - b.row_number,
+    );
+    return sorted.slice(0, slotCount);
+  }, [uploadedImages, slotCount]);
+
+  if (flowStep === "frame" && randomUUID) {
+    return (
+      <StartFrameEditor
+        sectionId={randomUUID}
+        boothSlotCount={slotCount}
+        boothImages={boothRowsForFrame}
+        onBack={() => setFlowStep("capture")}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col gap-10 bg-[#FFF7F9] text-[#B84F6F] items-center justify-center font-bold">
       <div>
@@ -231,6 +355,7 @@ export default function StartPage() {
       </div>
       <div className="flex gap-10">
         <div className="relative flex flex-col items-center justify-center gap-4">
+          <p className="text-sm font-medium">Chọn layout ảnh</p>
         <div className="flex gap-2">
           {FRAME_TYPE_OPTIONS.map((frameType) => (
             <div key={frameType.id} className={`border-2 border-[#B84F6F] rounded-md px-4 py-2 ${selectedFrameType.id === frameType.id ? "bg-[#B84F6F] text-white" : ""}`} onClick={() => setSelectedFrameType(frameType)}>
@@ -252,16 +377,37 @@ export default function StartPage() {
             className="w-[700px] rounded-lg transition-transform duration-500 ease-in-out"
             style={{
               transform: isFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
+              filter: selectedCaptureFilter.canvasFilter,
             }}
           />
           <PhysicalButton
-            className="bg-[#B84F6F] text-white rounded-full"
+            className="bg-[#B84F6F] text-white rounded-full flex flex-col items-center justify-center gap-2"
             onClick={handleCapture}
             disabled={isCapturing || !randomUUID || slotImages.filter(Boolean).length >= slotCount}
           >
-            <Camera className="h-4 w-4 mr-2" />
-            {isCapturing ? "Đang tải lên..." : "Chụp auto"}
+            <Camera className="h-4 w-4" />
+            {isCapturing ? "Đang tải lên..." : "Chụp"}
           </PhysicalButton>
+
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-sm font-medium">Bộ lọc màu</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {CAPTURE_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setSelectedCaptureFilter(opt)}
+                  className={`border-2 border-[#B84F6F] rounded-md px-4 py-2 text-sm ${
+                    selectedCaptureFilter.id === opt.id
+                      ? "bg-[#B84F6F] text-white"
+                      : "bg-white/60 text-[#B84F6F] hover:bg-[#B84F6F]/10"
+                  }`}
+                >
+                  {opt.name}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div>
           <div>
@@ -298,18 +444,30 @@ export default function StartPage() {
               <div className="grid grid-cols-2 gap-2">
                 {slotImages.map((image, index) => (
                   <div
-                    className="flex aspect-square max-h-[180px] w-full items-center justify-center overflow-hidden rounded-xs border-2 border-dashed border-[#B84F6F] bg-white/40"
+                    className="relative flex aspect-square max-h-[180px] w-full items-center justify-center overflow-hidden rounded-xs border-2 border-dashed border-[#B84F6F] bg-white/40"
                     key={`slot-${selectedFrameType.id}-${index}`}
                   >
                     {image ? (
-                      <Image
-                        src={image.Image}
-                        alt={`Ảnh ${index + 1}`}
-                        width={180}
-                        height={180}
-                        unoptimized
-                        className="h-full w-full object-cover"
-                      />
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteImage(image)}
+                          disabled={deletingRowIndex === image.row_number}
+                          className="absolute right-1 top-1 z-10 rounded-md bg-black/60 px-2 py-1 text-white disabled:opacity-60"
+                          aria-label={`Xóa ảnh ${index + 1}`}
+                          title="Xóa ảnh"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                        <Image
+                          src={image.Image}
+                          alt={`Ảnh ${index + 1}`}
+                          width={180}
+                          height={180}
+                          unoptimized
+                          className="h-full w-full object-cover"
+                        />
+                      </>
                     ) : (
                       <span className="px-2 text-center text-xs font-medium text-[#B84F6F]/70">
                         Slot {index + 1}
@@ -318,7 +476,11 @@ export default function StartPage() {
                   </div>
                 ))}
               </div>
-              <PhysicalButton className="bg-[#B84F6F] text-white rounded-full" disabled={slotImages.filter(Boolean).length !== slotCount}>
+              <PhysicalButton
+                className="bg-[#B84F6F] text-white rounded-full"
+                disabled={slotImages.filter(Boolean).length !== slotCount}
+                onClick={() => setFlowStep("frame")}
+              >
                 Tiếp tục <br />
                 (Bước chọn khung)
               </PhysicalButton>
